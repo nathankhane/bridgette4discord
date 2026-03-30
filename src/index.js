@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { Client, GatewayIntentBits, Events } from 'discord.js';
-import { ACTIVE_CHANNELS, MODEL, RATE_LIMIT_MS } from './config.js';
+import { ACTIVE_CHANNELS, CHANNEL_CONFIG, MODEL, RATE_LIMIT_MS } from './config.js';
 import { buildSystemPrompt } from './system-prompts.js';
 import { askClaude } from './claude.js';
 import {
@@ -18,6 +18,8 @@ import {
   formatUptime,
   log,
 } from './utils.js';
+import { preprocessVoiceInput } from './voice.js';
+import { captureIdea, getAllRecentIdeas } from './ideas.js';
 
 // Validate required env vars before starting
 if (!process.env.DISCORD_TOKEN) {
@@ -28,6 +30,15 @@ if (!process.env.ANTHROPIC_API_KEY) {
   console.error('ANTHROPIC_API_KEY is required in .env');
   process.exit(1);
 }
+
+const INTENT_EMOJI = {
+  idea: '💡',
+  prd: '📋',
+  task: '🔨',
+  question: '🤔',
+  review: '🔍',
+  general: '👀',
+};
 
 // Parse optional allowed user IDs
 const allowedUserIds = process.env.ALLOWED_USER_IDS
@@ -78,29 +89,64 @@ client.on(Events.MessageCreate, async (message) => {
   recordRequest(message.channel.id);
 
   // Strip the @mention from the message content if present
-  const userText = content
-    .replace(/<@!?\d+>/g, '')
-    .trim();
+  const rawText = content.replace(/<@!?\d+>/g, '').trim();
 
-  if (!userText) {
+  if (!rawText) {
     await message.reply("Yeah? What's up?");
     return;
   }
 
+  // Preprocess for voice input artifacts + detect intent
+  const { cleanedText, intent, isVoiceInput } = preprocessVoiceInput(rawText);
+
+  // React immediately with intent emoji (non-blocking)
+  const emoji = INTENT_EMOJI[intent] ?? '👀';
+  message.react(emoji).catch(() => {}); // ignore reaction failures silently
+
   // Show typing indicator
   await message.channel.sendTyping();
 
-  const systemPrompt = buildSystemPrompt(channelName);
+  const channelCfg = CHANNEL_CONFIG[channelName];
+  const isIdeasChannel = channelCfg?.project === 'ideas';
+
+  // Capture ideas in parallel (don't await — fire and forget)
+  if (isIdeasChannel) {
+    captureIdea(message, { cleanedText, intent, isVoiceInput }, client).catch((err) =>
+      log(`Idea capture error: ${err.message}`)
+    );
+  }
+
+  const systemPrompt = buildSystemPrompt(channelName, isVoiceInput);
   const history = getHistory(message.channel.id);
 
   try {
-    const response = await askClaude(systemPrompt, history, userText);
+    const response = await askClaude(systemPrompt, history, cleanedText);
 
     // Save to memory
-    addMessage(message.channel.id, 'user', userText);
+    addMessage(message.channel.id, 'user', cleanedText);
     addMessage(message.channel.id, 'assistant', response);
 
-    // Send response, chunked if needed
+    // Thread for long responses or structured doc requests
+    const shouldThread = response.length > 1500 || intent === 'prd' || intent === 'task';
+
+    if (shouldThread) {
+      try {
+        const threadName = `${intent}: ${cleanedText.slice(0, 50)}${cleanedText.length > 50 ? '...' : ''}`;
+        const thread = await message.startThread({
+          name: threadName,
+          autoArchiveDuration: 1440,
+        });
+        const chunks = splitMessage(response);
+        for (const chunk of chunks) {
+          await thread.send(chunk);
+        }
+        return;
+      } catch (threadErr) {
+        log(`Thread creation failed, falling back to channel: ${threadErr.message}`);
+      }
+    }
+
+    // Default: send in channel
     const chunks = splitMessage(response);
     for (const chunk of chunks) {
       await message.channel.send(chunk);
@@ -131,6 +177,22 @@ async function handleCommand(message, content, channelName) {
       break;
     }
 
+    case '!ideas': {
+      const recent = getAllRecentIdeas(10);
+      if (recent.length === 0) {
+        await message.reply('No ideas captured yet. Drop something in #idea-capture.');
+        break;
+      }
+      const lines = recent.map((idea, i) => {
+        const date = new Date(idea.timestamp).toLocaleString('en-US', {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+        });
+        return `**${i + 1}.** [${date}] **${idea.author}** in #${idea.channelName}: ${idea.cleaned.slice(0, 100)}${idea.cleaned.length > 100 ? '...' : ''}`;
+      });
+      await message.reply(`**Last ${recent.length} captured ideas:**\n\n${lines.join('\n')}`);
+      break;
+    }
+
     case '!help': {
       await message.reply(
         `Here's what I can do:\n\n` +
@@ -138,9 +200,10 @@ async function handleCommand(message, content, channelName) {
         `\`!clear\` — wipe my memory for this channel\n` +
         `\`!status\` — uptime, model, and memory info\n` +
         `\`!model\` — which Claude model I'm using\n` +
+        `\`!ideas\` — show last 10 captured ideas\n` +
         `\`!help\` — this message\n\n` +
         `**Capabilities**\n` +
-        `Discuss ideas and strategy, draft PRDs and docs, review code, debug problems, brainstorm. Mention me anywhere or just talk in a project channel.`
+        `Discuss ideas and strategy, draft PRDs and docs, review code, debug problems, brainstorm. Mention me anywhere or just talk in a project channel. Voice input via Wispr Flow is supported.`
       );
       break;
     }

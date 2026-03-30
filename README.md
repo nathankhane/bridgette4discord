@@ -48,11 +48,31 @@ https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=27
 
 ---
 
+## Voice Input with Wispr Flow
+
+Bridgette understands voice-transcribed input natively — no special setup required.
+
+1. Install [Wispr Flow](https://wisprflow.ai) on Mac or iOS
+2. Open Discord, tap the message field
+3. Use Wispr to dictate your message — it types the transcript into Discord
+4. Send as normal — Bridgette detects voice input automatically and adjusts her responses to be concise and mobile-friendly
+
+**Recommended shortcuts:**
+- Say "hey Bridgette" at the start to make it feel natural — she strips the invocation automatically
+- Say "create a PRD for..." to trigger a structured document response in a thread
+- Say "idea:" to flag something for idea capture in #idea-capture
+
+Filler words ("um", "uh", "like", "okay so") are cleaned before being sent to Claude.
+
+---
+
 ## How Bridgette works
 
 - **@mention her** in any channel to get a response
 - **Send any message** in a mapped project channel (no @mention needed)
 - She remembers the last 20 messages per channel (resets on restart)
+- **Emoji reactions** fire instantly when she receives your message (💡idea / 📋PRD / 🔨task / 🤔question / 🔍review)
+- **Long responses and PRD requests** automatically open a thread to keep channels clean
 
 ### Mapped channels
 | Channel | Context |
@@ -72,6 +92,7 @@ https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=27
 | `!clear` | Wipe Bridgette's memory for the current channel |
 | `!status` | Uptime, model, and active memory info |
 | `!model` | Which Claude model is running |
+| `!ideas` | Show the last 10 captured ideas across all channels |
 | `!help` | List commands and capabilities |
 
 ---
