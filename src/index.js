@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { Client, GatewayIntentBits, Events } from 'discord.js';
+import { Client, GatewayIntentBits, Partials, Events } from 'discord.js';
 import { ACTIVE_CHANNELS, CHANNEL_CONFIG, MODEL, RATE_LIMIT_MS } from './config.js';
 import { buildSystemPrompt } from './system-prompts.js';
 import { askClaude } from './claude.js';
@@ -50,7 +50,9 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
   ],
+  partials: [Partials.Channel],
 });
 
 client.once(Events.ClientReady, (readyClient) => {
@@ -61,12 +63,13 @@ client.on(Events.MessageCreate, async (message) => {
   // Ignore bots (including self)
   if (message.author.bot) return;
 
-  const channelName = message.channel.name ?? '';
+  const isDM = message.channel.isDMBased();
+  const channelName = isDM ? 'bridgette' : (message.channel.name ?? '');
   const isMentioned = message.mentions.has(client.user);
   const isActiveChannel = ACTIVE_CHANNELS.has(channelName);
 
-  // Only respond if mentioned OR in an active channel
-  if (!isMentioned && !isActiveChannel) return;
+  // DMs always respond; server channels require mention or active channel
+  if (!isDM && !isMentioned && !isActiveChannel) return;
 
   // Check allowed users if configured
   if (allowedUserIds && !allowedUserIds.has(message.author.id)) {
