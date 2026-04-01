@@ -102,6 +102,12 @@ client.on(Events.MessageCreate, async (message) => {
   // Preprocess for voice input artifacts + detect intent
   const { cleanedText, intent, isVoiceInput } = preprocessVoiceInput(rawText);
 
+  // Guard: voice preprocessing may consume the entire message (e.g. "hey bridgette")
+  if (!cleanedText) {
+    await message.reply("Yeah? What's up?");
+    return;
+  }
+
   // React immediately with intent emoji (non-blocking)
   const emoji = INTENT_EMOJI[intent] ?? '👀';
   message.react(emoji).catch(() => {}); // ignore reaction failures silently

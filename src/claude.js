@@ -17,7 +17,7 @@ export async function askClaude(systemPrompt, history, userMessage) {
   const messages = [
     ...history,
     { role: 'user', content: userMessage },
-  ];
+  ].filter((m) => m.content);
 
   try {
     log(`Calling Claude (${MODEL}) with ${messages.length} messages`);

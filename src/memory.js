@@ -8,6 +8,7 @@ export function getHistory(channelId) {
 }
 
 export function addMessage(channelId, role, content) {
+  if (!content) return;
   if (!history.has(channelId)) {
     history.set(channelId, []);
   }
